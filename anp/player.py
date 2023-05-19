@@ -110,6 +110,7 @@ class Reanim(Animation):
         return calc.start()
 
     def save(self, path: Path | str):
+        self._items = cast(list[ReanimItem], self._items)
         if not isinstance(path, Path):
             path = Path(path)
         dummy_top = 'dummy-top'
@@ -236,14 +237,14 @@ class Item:
     def max_frame(self) -> int: pass
     @abstractmethod
     def internal_to(self, start: float, end: float) -> 'Self': ...
-    @abstractmethod
-    def to_xml(self) -> Element: pass
 
 
 @mypy_extensions.trait
 class ReanimItem(Item, metaclass=ABCMeta):
     @abstractmethod
     def read_complete_recall(self): pass
+    @abstractmethod
+    def to_xml(self) -> Element: pass
 
 
 class ItemWithData(Item, metaclass=ABCMeta):
@@ -283,10 +284,46 @@ class ItemWithData(Item, metaclass=ABCMeta):
     def opacity_at(self, frame: float):
         return self.data_at(frame).opacity
 
+    def max_frame(self) -> int:
+        return max(self._data.keys())
 
-@mypy_extensions.trait
+
 class ReanimItemWithData(ItemWithData, ReanimItem, metaclass=ABCMeta):
-    pass
+    def to_xml(self) -> Element:
+        def _add_ele(parent: Element, tag: str, text: str):
+            e = Element(tag)
+            e.text = text
+            parent.append(e)
+
+        res = Element('track')
+        name = Element('name')
+        name.text = self.name
+        res.append(name)
+        previous = ItemData()
+        for frame in range(self.max_frame() + 1):
+            t = Element('t')
+            data = self.data_at(frame)
+            if data.x != previous.x:
+                _add_ele(t, 'x', f'{data.x:.1f}')
+            if data.y != previous.y:
+                _add_ele(t, 'y', f'{data.y:.1f}')
+            if data.opacity != previous.opacity:
+                _add_ele(t, 'a', f'{data.opacity}')
+            if data.scale_x != previous.scale_x:
+                _add_ele(t, 'sx', f'{data.scale_x:.3f}')
+            if data.scale_y != previous.scale_y:
+                _add_ele(t, 'sy', f'{data.scale_y:.3f}')
+            if data.x_rotate != previous.x_rotate:
+                _add_ele(t, 'kx', f'{data.x_rotate:.1f}')
+            if data.y_rotate != previous.y_rotate:
+                _add_ele(t, 'ky', f'{data.y_rotate:.1f}')
+            if data.hidden != previous.hidden:
+                _add_ele(t, 'f', '-1' if data.hidden else '0')
+            if data.image_name != previous.image_name:
+                _add_ele(t, 'i', data.image_name)
+            previous = data
+            res.append(t)
+        return res
 
 
 class NormalItem(ItemWithData, metaclass=ABCMeta):
@@ -302,9 +339,6 @@ class NormalItem(ItemWithData, metaclass=ABCMeta):
         painter.setOpacity(painter.opacity() * self.opacity_at(frame))
         painter.setTransform(self.transform_at(frame), True)
         painter.drawPixmap(0, 0, img)
-
-    def max_frame(self):
-        return max(self._data.keys())
 
     def image_at(self, frame: float) -> QPixmap | None:
         frames = list(self._data.keys())
@@ -393,9 +427,6 @@ class AttacherItem(ItemWithData, metaclass=ABCMeta):
             return None
         return self.player.bounding_rect()
 
-    def max_frame(self) -> int:
-        return max(self._data.keys())
-
     def _recalc(self, frame: float) -> None:
         for start, anim, sub, external in reversed(self.anim):
             if start <= frame:
@@ -418,17 +449,21 @@ class AttacherItem(ItemWithData, metaclass=ABCMeta):
 
 
 class SingleAttachItem(Item, metaclass=ABCMeta):
-    def __init__(self, name: str, anim: Animation, start: float, max_frame: float, transform: QTransform, fps: float):
+    def __init__(self, name: str, anim: Animation, start: float, max_frame: float, data: 'ItemData', fps: float):
+        """max_frame: 开始循环的帧数"""
         super().__init__(name)
         self.anim = anim
         self.start = start
         self._max_frame = max_frame
-        self.transform = transform
+        self.transform = data.to_transform()
+        self.opacity = data.opacity
+        self.data = data
         self.fps = fps
         self._ratio = self.anim.fps / self.fps
 
     def paint(self, frame: float, painter: QPainter) -> None:
         painter.setTransform(self.transform)
+        painter.setOpacity(painter.opacity() * self.opacity)
         self.anim.paint(((self.start + frame) % self._max_frame) * self._ratio, painter, [])
 
     def max_frame(self) -> int:
@@ -442,42 +477,6 @@ class SingleAttachItem(Item, metaclass=ABCMeta):
 
 
 class ReanimNormalItem(NormalItem, ReanimItemWithData):
-    def to_xml(self) -> Element:
-        def _add_ele(parent: Element, tag: str, text: str):
-            e = Element(tag)
-            e.text = text
-            parent.append(e)
-
-        res = Element('track')
-        name = Element('name')
-        name.text = self.name
-        res.append(name)
-        previous = ItemData()
-        for frame in range(self.max_frame() + 1):
-            t = Element('t')
-            data = self.data_at(frame)
-            if data.x != previous.x:
-                _add_ele(t, 'x', f'{data.x:.1f}')
-            if data.y != previous.y:
-                _add_ele(t, 'y', f'{data.y:.1f}')
-            if data.opacity != previous.opacity:
-                _add_ele(t, 'a', f'{data.opacity}')
-            if data.scale_x != previous.scale_x:
-                _add_ele(t, 'sx', f'{data.scale_x:.3f}')
-            if data.scale_y != previous.scale_y:
-                _add_ele(t, 'sy', f'{data.scale_y:.3f}')
-            if data.x_rotate != previous.x_rotate:
-                _add_ele(t, 'kx', f'{data.x_rotate:.1f}')
-            if data.y_rotate != previous.y_rotate:
-                _add_ele(t, 'ky', f'{data.y_rotate:.1f}')
-            if data.hidden != previous.hidden:
-                _add_ele(t, 'f', '-1' if data.hidden else '0')
-            if data.image_name != previous.image_name:
-                _add_ele(t, 'i', data.image_name)
-            previous = data
-            res.append(t)
-        return res
-
     def read_complete_recall(self): pass
 
 
@@ -524,12 +523,12 @@ class ReanimSingleAttachItem(SingleAttachItem, ReanimItem):
         offset = float(external)
         if sub:
             start, end = anim.sub_anim_frame(sub)
-            max_frame = end - start - 1
+            max_frame = end - start
             start += offset
         else:
             start = offset
-            max_frame = anim.max_frame()
-        super().__init__(name, anim, start, max_frame, data.to_transform(), fps)
+            max_frame = anim.max_frame() + 1
+        super().__init__(name, anim, start, max_frame, data, fps)
 
 
 def _parse_attach_text(s: str):
@@ -595,7 +594,7 @@ class ItemData:
             other.get('text', self.text),
         )
 
-    def to_transform(self):
+    def to_transform(self) -> QTransform:
         x_rotate = radians(self.x_rotate)
         y_rotate = radians(self.y_rotate)
         a = self.scale_x * cos(x_rotate)
@@ -631,7 +630,7 @@ class AnimationPlayer:
         self.time += elapsed_time * self.speed
         if self.__internal_anim is not None:
             if self.now_anim_frame() > self.__internal_anim.max_frame():
-                self.time %= self.__internal_anim.max_frame() / self.anim.fps
+                self.time -= self.__internal_anim.max_frame() / self.anim.fps
                 self.__internal_anim = None
                 self.__previous_ground_pos = None
             return
@@ -720,11 +719,12 @@ class AnimationPlayer:
 
     def goto(self, anim: str, frame: float) -> None:
         self.playing = anim
-        elapsed_loop: int
         elapsed_loop, frame = divmod(frame, self.max_frame())
         self.time = frame / self.anim.fps
         if self.loop_count != -1:
-            self.loop_count -= elapsed_loop
+            self.loop_count -= int(elapsed_loop)
+            if self.loop_count < 0:
+                self.loop_count = 0
 
 
 def interpolated(a: float, b: float, progress: float) -> float:
