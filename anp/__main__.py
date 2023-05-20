@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
         suffix2coding = {
             'mp4': 'mp4v',
             'avi': 'XVID',
+            'reanim': '',
         }
         file_path, _ = QFileDialog.getSaveFileName(
             self, "导出", filter=', '.join(f'*.{name}' for name in suffix2coding.keys()))

@@ -61,11 +61,11 @@ class Animation:
         return None
 
     @overload
-    def internal_to(self, frame: float, guide_name: str) -> 'Animation': ...
+    def internal_to(self, frame: float, guide_name: str, /) -> 'Animation': ...
     @overload
-    def internal_to(self, start: float, end: float) -> 'Animation': ...
+    def internal_to(self, start: float, end: float, /) -> 'Animation': ...
 
-    def internal_to(self, frame: float, guide_name: str | int) -> 'Animation':
+    def internal_to(self, frame: float, guide_name: str | float, /) -> 'Animation':
         if isinstance(guide_name, str):
             end, _ = self.sub_anim_frame(guide_name)
         else:
@@ -110,7 +110,6 @@ class Reanim(Animation):
         return calc.start()
 
     def save(self, path: Path | str):
-        self._items = cast(list[ReanimItem], self._items)
         if not isinstance(path, Path):
             path = Path(path)
         dummy_top = 'dummy-top'
@@ -122,6 +121,7 @@ class Reanim(Animation):
             fps.text = str(self.fps)
         root.append(fps)
         for item in self._items:
+            assert isinstance(item, ReanimItem)
             root.append(item.to_xml())
         res = tostring(root, method='html')[len(dummy_top) + 2: -(len(dummy_top) + 2 + 1)]
         with path.open('wb') as f:
@@ -288,6 +288,7 @@ class ItemWithData(Item, metaclass=ABCMeta):
         return max(self._data.keys())
 
 
+@mypy_extensions.trait
 class ReanimItemWithData(ItemWithData, ReanimItem, metaclass=ABCMeta):
     def to_xml(self) -> Element:
         def _add_ele(parent: Element, tag: str, text: str):
@@ -406,16 +407,21 @@ class AttacherItem(ItemWithData, metaclass=ABCMeta):
         if self.playing is None:
             return res
         anim = self.playing
-        sub1 = self.player.playing
+        player = self.player
+        if player is None:
+            return res
+        sub1 = player.playing
         start1, _ = anim.sub_anim_frame(sub1)
-        a = start1 + self.player.now_anim_frame()
+        a = start1 + player.now_anim_frame()
+
         self._recalc(end)
         p2 = self.playing
-        if anim is not p2:
+        player = self.player
+        if anim is not p2 or player is None:
             return res  # 禁止不同动画间连接
-        sub2 = self.player.playing
+        sub2 = player.playing
         start2, _ = anim.sub_anim_frame(sub2)
-        b = start2 + self.player.now_anim_frame()
+        b = start2 + player.now_anim_frame()
         res.anim = [(0, anim.internal_to(a, b), '', '')]
         return res
 
