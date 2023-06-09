@@ -1,0 +1,12 @@
+*.pyd
+*.js
+test.py
+.mypy_cache
+build
+*.pyc
+.idea
+t.py
+*.png
+*.jpg
+*.gif
+*.ogg

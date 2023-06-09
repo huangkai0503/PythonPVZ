@@ -2,7 +2,9 @@ from pathlib import Path
 from typing import Final, TYPE_CHECKING
 from xml.etree.ElementTree import fromstring, Element
 
-from PySide6.QtGui import QPixmap, QPainter, QBitmap, Qt
+from PySide6.QtGui import QPixmap, QPainter, Qt
+
+from bass import Music, SoundEffect
 
 if TYPE_CHECKING:
     from anp import Animation
@@ -23,10 +25,12 @@ class Resources:
     prop_all: dict[str, dict[str, Path]]
     img_cache: dict[str, QPixmap]
     anim_cache: dict[str, 'Animation']
+    main_music: 'Music | None'
+    sound_effects: dict[str, SoundEffect]
 
     def load_properties(self, file: str | Path, strict: bool = True) -> None:
         if isinstance(file, str):
-            file = Path(file)
+            file = resources_root / 'properties' / Path(file)
         self.load_properties_from_str(file.read_text('utf-8'), file.parent.parent, strict)
 
     def load_properties_from_str(self, s: str, root: Path, strict: bool = True) -> None:
@@ -63,7 +67,7 @@ class Resources:
 
     @staticmethod
     def _pixmap_with_mask(path: Path) -> QPixmap:
-        suffixes = _PropertyCalculator.suffixes_for('Image')
+        suffixes = _PropertyCalculator.SUFFIXES_FOR['Image']
         need = path.stem.upper()
         mask_need = need + '_'
         img_path = None
@@ -102,6 +106,20 @@ class Resources:
     def load_anim_by_name(self, name: str) -> 'Animation':
         return self.load_reanim(name)
 
+    def load_main_music(self) -> 'Music':
+        if self.main_music is not None:
+            return self.main_music
+        res = Music(resources_root / 'sounds' / 'mainmusic.mo3')
+        self.main_music = res
+        return res
+
+    def load_sound_effect(self, name: str) -> SoundEffect:
+        if name in self.sound_effects:
+            return self.sound_effects[name]
+        res = SoundEffect(resources_root / 'sounds' / f'{name}.ogg')
+        self.sound_effects[name] = res
+        return res
+
     @staticmethod
     def instance():
         global _resources
@@ -111,16 +129,38 @@ class Resources:
         _resources.prop_all = {}
         _resources.img_cache = {}
         _resources.anim_cache = {}
+        _resources.sound_effects = {}
+        _resources.main_music = None
         return _resources
 
 
 class _PropertyCalculator:
+    SUFFIXES_FOR: dict[str, tuple[str, ...]] = {
+        'Image': ('.png', '.jpg'),
+        'Sound': ('.ogg', '.mp3'),
+    }
+
     def __init__(self, tree: Element, root: Path, strict: bool):
         self.tree = tree
         self.root = root
         self.strict = strict
         self.path = Path()
         self.id_prefix = ''
+        self._name2path: dict[tuple[Path, str, str], Path] = {}  # (dir_, prop_path.upper(), tag): file
+        self._calc_name2path()
+
+    def _calc_name2path(self):
+        for dir_ in self.root.iterdir():
+            if not dir_.is_dir():
+                continue
+            for file in dir_.iterdir():
+                if not file.is_file():
+                    continue
+                prop_path = file.stem
+                for tag, suffixes in self.SUFFIXES_FOR.items():
+                    if file.suffix in suffixes:
+                        self._name2path[dir_, prop_path.upper(), tag] = file
+                        break
 
     def calc(self) -> dict[str, dict[str, Path]]:
         return self.resources_manifest(self.tree)
@@ -158,23 +198,14 @@ class _PropertyCalculator:
         assert prop_path is not None
         if '.' in prop_path:
             return {id_: dir_ / prop_path}
-        suffixes = self.suffixes_for(tree.tag)
-        for file in dir_.iterdir():
-            if file.is_file() and file.stem.upper() == prop_path.upper() and file.suffix.lower() in suffixes:
-                return {id_: file}
+        key = (dir_, prop_path.upper(), tree.tag)
+        if key in self._name2path:
+            return {id_: self._name2path[key]}
         if self.strict:
             raise ValueError(f'There is not file with name {prop_path} in {dir_.joinpath()}')
         else:
             print(f'miss {tree.tag.lower()} {prop_path} in {dir_.joinpath()}')
             return {}
-
-    @staticmethod
-    def suffixes_for(type_: str) -> tuple[str, ...]:
-        if type_ == 'Image':
-            return '.gif', '.png', '.jpg'
-        elif type_ == 'Sound':
-            return '.ogg', '.mo3'
-        return ()
 
 
 def parse_xml_string(s: str) -> Element:

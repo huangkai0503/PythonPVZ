@@ -7,7 +7,7 @@ from xml.etree.ElementTree import Element, tostring
 
 import mypy_extensions
 from PySide6.QtCore import QPointF, QPoint, QRect, QRectF
-from PySide6.QtGui import QPixmap, QPainter, QTransform
+from PySide6.QtGui import QPixmap, QPainter, QTransform, Qt
 
 from Resources import Resources, parse_xml
 
@@ -95,6 +95,25 @@ class Animation:
             if guide_item.hidden_at(frame):
                 return start, frame
         return start, max_frame
+
+    def load_img0(self, guide_name: str = '', hide_items: list[str] | None = None) -> QPixmap:
+        if hide_items is None:
+            hide_items = []
+        if guide_name:
+            frame, _ = self.sub_anim_frame(guide_name)
+        else:
+            frame = 0
+        max_frame = self.max_frame()
+        if not max_frame:
+            return QPixmap()
+        bounding = self.bounding_rect_at(frame, hide_items)
+        res = QPixmap(bounding.size().toSize())
+        res.fill(Qt.transparent)
+        painter = QPainter(res)
+        painter.translate(-bounding.topLeft())
+        self.paint(frame, painter, hide_items)
+        del painter
+        return res
 
     # abstract
     def save(self, path: Path | str): pass
@@ -636,7 +655,7 @@ class AnimationPlayer:
         self.time += elapsed_time * self.speed
         if self.__internal_anim is not None:
             if self.now_anim_frame() > self.__internal_anim.max_frame():
-                self.time -= self.__internal_anim.max_frame() / self.anim.fps
+                self.time %= self.__internal_anim.max_frame() / self.anim.fps
                 self.__internal_anim = None
                 self.__previous_ground_pos = None
             return
