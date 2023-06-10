@@ -12,7 +12,8 @@ from bass.functions import BASS_ChannelPlay, BASS_ChannelStop, BASS_ChannelPause
     BASS_GetDevice, BASS_SetDevice, BASS_GetDeviceInfo, BASS_Pause, BASS_Start, BASS_Stop, BASS_MusicLoad, \
     BASS_MusicFree, BASS_ChannelSetAttribute, BASS_ChannelGetAttribute, BASS_ChannelFlags
 
-BASS_ChannelGetTagsID3v1 = func_type(POINTER(TAG_ID3), HANDLE, c_ulong)(("BASS_ChannelGetTags", bass_module))
+P_TAG_ID3 = POINTER(TAG_ID3)
+BASS_ChannelGetTagsID3v1 = func_type(P_TAG_ID3, HANDLE, c_ulong)(("BASS_ChannelGetTags", bass_module))
 
 
 class GUID(Structure):
@@ -139,7 +140,7 @@ class BassChannel:
         return BASS_ChannelGetLength(stream_handle, Pos.BYTE.value)
 
     @classmethod
-    def get_id3v1_tags(cls, stream_handle: HANDLE) -> POINTER(TAG_ID3):
+    def get_id3v1_tags(cls, stream_handle: HANDLE) -> P_TAG_ID3:
         return BASS_ChannelGetTagsID3v1(stream_handle, Tag.ID3.value)
 
     @classmethod

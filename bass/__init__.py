@@ -32,8 +32,7 @@ class Song:
 
     _position_seconds: float
     file_path: Path
-    tags: dict[str, str | None]
-    _tags_fetched = False
+    tags: dict[str, str | None] | None
 
     def __init__(self, file_path: str | Path, length_seconds: float | None = None, length_bytes: int = None,
                  tags: dict[str, str | None] | None = None):
@@ -46,18 +45,14 @@ class Song:
         if not self.file_path.is_file():
             raise ValueError(f"{file_path=} is not a valid file")
 
-        if tags is None:
-            tags = {}
-
         self._handle = NULL
         self._length_seconds = length_seconds
         self._length_bytes = length_bytes
         self._position_seconds = 0
-        self.tags = defaultdict(lambda: None, **tags)
+        self.tags = tags
 
     def __del__(self):
-        # self.free_stream()
-        pass
+        self.free_stream()
 
     @property
     def id(self):
@@ -69,9 +64,8 @@ class Song:
         if self._length_bytes is None:
             self._length_bytes = BassChannel.get_length_bytes(self._handle)
             self._length_seconds = BassChannel.get_length_seconds(self._handle, self._length_bytes)
-        if not self._tags_fetched:
+        if self.tags is None:
             self.tags = BassTags.GetDefaultTags(self._handle)
-            self._tags_fetched = True
 
     def free_stream(self, direct_stop: bool = False) -> None:
         if self._handle is NULL:
@@ -81,10 +75,13 @@ class Song:
                 BassChannel.stop(self._handle)
             else:
                 self.stop()
-        ok = BassStream.free(self._handle)
+        ok = self._free_handle()
         if not ok:
             Bass.may_raise_error()
         self._handle = NULL
+
+    def _free_handle(self):
+        return BassStream.free(self._handle)
 
     def touch(self) -> None:
         self._create_stream()
@@ -102,22 +99,18 @@ class Song:
     def position_time(self):
         seconds = int(self.position % 60)
         minutes = int(self.position // 60)
-
         return f"{minutes:02}:{seconds:02}"
 
     @property
     def duration(self) -> float:
         if self._length_seconds is None and self._handle is NULL:
-            self._create_stream()
-            self.free_stream()
-
+            self.touch()
         return self._length_seconds
 
     @property
     def duration_bytes(self) -> int:
         if self._length_bytes is None and self._handle is NULL:
-            self._create_stream()
-            self.free_stream()
+            self.touch()
         return self._length_bytes
 
     @property
@@ -150,9 +143,6 @@ class Song:
     def handle(self):
         self.free_stream()
 
-    def __len__(self):
-        return BassChannel.get_length_bytes(self.handle)
-
     @property
     def playing(self):
         return BassChannel.is_playing(self.handle)
@@ -165,19 +155,19 @@ class Song:
     def stopped(self):
         return BassChannel.is_stopped(self.handle)
 
-    def move2position_seconds(self, seconds: float) -> bool:
+    def set_position_seconds(self, seconds: float) -> bool:
         ok = BassChannel.set_position_by_seconds(self.handle, seconds)
         if not ok:
             Bass.may_raise_error()
         return ok
 
-    def move2position_bytes(self, bytes_: int) -> None:
+    def set_position_bytes(self, bytes_: int) -> None:
         ok = BassChannel.set_position_by_bytes(self.handle, bytes_)
         if not ok:
             Bass.may_raise_error()
 
     def play(self):
-        ok = BassChannel.play(self.handle, False)
+        ok = BassChannel.play(self.handle, restart=False)
         if not ok:
             Bass.may_raise_error()
 
@@ -248,18 +238,8 @@ class Music(Song):
     def _create_handle(self) -> HANDLE:
         return BassMusic.load_from_file(self.file_path)
 
-    def free_stream(self, direct_stop: bool = False) -> None:
-        if self._handle is NULL:
-            return
-        if self.playing or self.paused:
-            if direct_stop:
-                BassChannel.stop(self._handle)
-            else:
-                self.stop()
-        ok = BassMusic.free(self._handle)
-        if not ok:
-            Bass.may_raise_error()
-        self._handle = NULL
+    def _free_handle(self):
+        return BassMusic.free(self._handle)
 
     def instrument(self, pos: int):
         return _MusicInstrument(self.handle, pos)
@@ -288,6 +268,13 @@ class Music(Song):
             res.append(_MusicChannel(self._handle, index))
             index += 1
         return iter(res)
+
+    def __len__(self):
+        index = 0
+        dummy = c_float()
+        while BASS_ChannelGetAttribute(self.handle, MusicAttrib.VOL_CHAN.value + index, byref(dummy)):
+            index += 1
+        return index
 
 
 class SoundEffect:
