@@ -5,7 +5,6 @@ __all__ = (
 )
 
 import logging
-from collections import defaultdict
 from ctypes import c_float, byref
 from hashlib import sha1
 from pathlib import Path
@@ -30,25 +29,22 @@ class Song:
     _length_seconds: float
     _length_bytes: int
 
-    _position_seconds: float
     file_path: Path
     tags: dict[str, str | None] | None
 
     def __init__(self, file_path: str | Path, length_seconds: float | None = None, length_bytes: int = None,
                  tags: dict[str, str | None] | None = None):
-        Bass.init()  # TODO: 不要在这里初始化 bass？
         self.file_path = Path(file_path)
         # self._id = uuid4().hex
         self._id = sha1(str(self.file_path.as_posix()).encode("utf-8")).hexdigest()
         if not self.file_path.exists():
             raise ValueError(f"{file_path} doesn't exist")
         if not self.file_path.is_file():
-            raise ValueError(f"{file_path=} is not a valid file")
+            raise ValueError(f"{file_path} is not a valid file")
 
         self._handle = NULL
         self._length_seconds = length_seconds
         self._length_bytes = length_bytes
-        self._position_seconds = 0
         self.tags = tags
 
     def __del__(self):
@@ -72,7 +68,8 @@ class Song:
             return
         if self.playing or self.paused:
             if direct_stop:
-                BassChannel.stop(self._handle)
+                if not BassChannel.stop(self._handle):
+                    Bass.may_raise_error()
             else:
                 self.stop()
         ok = self._free_handle()
@@ -114,24 +111,12 @@ class Song:
         return self._length_bytes
 
     @property
-    def duration_time(self):
-        seconds = int(self.duration % 60)
-        minutes = int(self.duration // 60)
-        return f"{minutes:02}:{seconds:02}"
-
-    @property
     def remaining_seconds(self):
         return self.duration - self.position
 
     @property
     def remaining_bytes(self):
         return self.duration_bytes - self.position_bytes
-
-    @property
-    def remaining_time(self):
-        seconds = int(self.remaining_seconds % 60)
-        minutes = int(self.remaining_seconds // 60)
-        return f"{minutes:02}:{seconds:02}"
 
     @property
     def handle(self) -> HANDLE:
@@ -155,11 +140,10 @@ class Song:
     def stopped(self):
         return BassChannel.is_stopped(self.handle)
 
-    def set_position_seconds(self, seconds: float) -> bool:
+    def set_position_seconds(self, seconds: float) -> None:
         ok = BassChannel.set_position_by_seconds(self.handle, seconds)
         if not ok:
             Bass.may_raise_error()
-        return ok
 
     def set_position_bytes(self, bytes_: int) -> None:
         ok = BassChannel.set_position_by_bytes(self.handle, bytes_)
@@ -194,6 +178,9 @@ class Song:
 
     def _create_handle(self) -> HANDLE:
         return BassStream.create_from_file(self.file_path)
+
+    def is_active(self):
+        return BassChannel.is_active(self._handle)
 
 
 class _MusicChannel:
@@ -235,7 +222,7 @@ class _MusicInstrument:
 class Music(Song):
     _handle: HMusic
 
-    def _create_handle(self) -> HANDLE:
+    def _create_handle(self) -> HMusic:
         return BassMusic.load_from_file(self.file_path)
 
     def _free_handle(self):
@@ -318,11 +305,6 @@ class SoundEffect:
     @handle.deleter
     def handle(self):
         self.free_stream()
-
-    def __len__(self):
-        if self.handle is NULL:
-            raise ValueError('handle is NULL')
-        return BassChannel.get_length_bytes(self.handle)
 
     @property
     def playing(self):

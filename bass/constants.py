@@ -235,8 +235,7 @@ class Music(Flag):
     PT1MOD = 0x4000  # play .MOD as ProTracker 1 does
     NONINTER = 0x10000  # non-interpolated sample mixing
     SINCINTER = 0x800000  # sinc interpolated sample mixing
-    POSRESET = 0x8000  # stop all notes when moving position
-    POSRESETEX = 0x400000  # stop all notes and reset bmp/etc when moving position
+
     STOPBACK = 0x80000  # stop the music on a backwards jump effect
     NOSAMPLE = 0x100000  # don't load the samples
 
@@ -467,6 +466,8 @@ class Pos(Flag):
     DECODETO = 0x20000000  # flag: decode to the position instead of seeking
     SCAN = 0x40000000  # flag: scan to the position
 
+    MUSIC_RESET = 0x8000  # stop all notes when moving position
+    MUSIC_RESET_EX = 0x400000  # stop all notes and reset bmp/etc when moving position
 
 class Input(Flag):
     OFF = 0x10000

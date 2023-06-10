@@ -2,18 +2,15 @@ from ctypes import Structure, POINTER, c_ulong, c_ushort, c_ubyte, byref, c_floa
 from ctypes.wintypes import HWND
 from pathlib import Path
 
+from bass.bass_types import HANDLE, HMusic, NULL, Info, DeviceInfo
 from bass.constants import Pos, Active, Tag, Error, Config, Device, Music as MusicFlags, Attrib, SampleFlags, \
     MusicAttrib, MAKELONG
-from bass.bass_types import HANDLE, func_type, TAG_ID3, bass_module, HMusic, NULL, Info, DeviceInfo
 from bass.functions import BASS_ChannelPlay, BASS_ChannelStop, BASS_ChannelPause, BASS_ChannelIsActive, \
     BASS_ChannelGetPosition, BASS_ChannelBytes2Seconds, BASS_ChannelSetPosition, BASS_ChannelSeconds2Bytes, \
     BASS_ChannelGetLength, BASS_StreamCreateFile, BASS_StreamFree, BASS_ErrorGetCode, BASS_Init, BASS_Free, \
     BASS_GetCPU, BASS_GetVolume, BASS_SetVolume, BASS_SetConfig, BASS_GetConfig, BASS_GetVersion, BASS_GetInfo, \
     BASS_GetDevice, BASS_SetDevice, BASS_GetDeviceInfo, BASS_Pause, BASS_Start, BASS_Stop, BASS_MusicLoad, \
-    BASS_MusicFree, BASS_ChannelSetAttribute, BASS_ChannelGetAttribute, BASS_ChannelFlags
-
-P_TAG_ID3 = POINTER(TAG_ID3)
-BASS_ChannelGetTagsID3v1 = func_type(P_TAG_ID3, HANDLE, c_ulong)(("BASS_ChannelGetTags", bass_module))
+    BASS_MusicFree, BASS_ChannelSetAttribute, BASS_ChannelGetAttribute, BASS_ChannelFlags, BASS_ChannelGetTags
 
 
 class GUID(Structure):
@@ -59,52 +56,53 @@ class BassStream:
 
 class BassChannel:
     @classmethod
-    def play(cls, stream_handle: HANDLE, restart: bool = False) -> bool:
-        return BASS_ChannelPlay(stream_handle, restart)
+    def play(cls, handle: HANDLE, restart: bool = False) -> bool:
+        return BASS_ChannelPlay(handle, restart)
 
     @classmethod
-    def stop(cls, stream_handle: HANDLE) -> bool:
-        return BASS_ChannelStop(stream_handle)
+    def stop(cls, handle: HANDLE) -> bool:
+        return BASS_ChannelStop(handle)
 
     @classmethod
-    def pause(cls, stream_handle: HANDLE) -> bool:
-        status = cls.is_active(stream_handle)
-        if status == Active.PAUSED:
-            return cls.play(stream_handle)
-        else:
-            return BASS_ChannelPause(stream_handle)
+    def pause(cls, handle: HANDLE) -> bool:
+        return BASS_ChannelPause(handle)
 
     @classmethod
-    def resume(cls, stream_handle: HANDLE) -> bool:
-        return cls.play(stream_handle)
+    def resume(cls, handle: HANDLE) -> bool:
+        return cls.play(handle)
 
     @classmethod
-    def is_active(cls, stream_handle: HANDLE) -> int:
-        return BASS_ChannelIsActive(stream_handle)
+    def is_active(cls, handle: HANDLE) -> Active:
+        return Active(BASS_ChannelIsActive(handle))
 
     @classmethod
-    def is_playing(cls, stream_handle: HANDLE) -> bool:
-        retval = cls.is_active(stream_handle)
-        return retval == Active.PLAYING.value
+    def is_playing(cls, handle: HANDLE) -> bool:
+        return cls.is_active(handle) == Active.PLAYING
 
     @classmethod
-    def is_paused(cls, stream_handle: HANDLE) -> bool:
-        retval = cls.is_active(stream_handle)
-        return retval == Active.PAUSED.value
+    def is_paused(cls, handle: HANDLE) -> bool:
+        return cls.is_active(handle) == Active.PAUSED
 
     @classmethod
-    def is_stopped(cls, stream_handle: HANDLE) -> bool:
-        retval = cls.is_active(stream_handle)
-        return retval == Active.STOPPED.value
+    def is_stopped(cls, handle: HANDLE) -> bool:
+        return cls.is_active(handle) == Active.STOPPED
+    
+    @classmethod
+    def get_position(cls, handle: HANDLE, mode: Pos) -> int:
+        return BASS_ChannelGetPosition(handle, mode.value)
 
     @classmethod
-    def get_position_bytes(cls, stream_handle: HANDLE) -> int:
-        return BASS_ChannelGetPosition(stream_handle, Pos.BYTE.value)
+    def get_position_bytes(cls, handle: HANDLE) -> int:
+        return cls.get_position(handle, Pos.BYTE)
 
     @classmethod
-    def get_position_seconds(cls, stream_handle: HANDLE) -> int:
-        stream_bytes = cls.get_position_bytes(stream_handle)
-        return BASS_ChannelBytes2Seconds(stream_handle, stream_bytes)
+    def get_position_seconds(cls, handle: HANDLE) -> int:
+        stream_bytes = cls.get_position_bytes(handle)
+        return BASS_ChannelBytes2Seconds(handle, stream_bytes)
+
+    @classmethod
+    def set_position(cls, handle: HANDLE, pos: int, mode: Pos) -> bool:
+        return BASS_ChannelSetPosition(handle, pos, mode.value)
 
     @classmethod
     def set_position_by_seconds(cls, handle: HANDLE, seconds: float) -> bool:
@@ -113,35 +111,31 @@ class BassChannel:
 
     @classmethod
     def set_position_by_bytes(cls, handle: HANDLE, bytes_: int) -> bool:
-        return BASS_ChannelSetPosition(handle, bytes_, Pos.BYTE.value)
+        return cls.set_position(handle, bytes_, Pos.BYTE)
 
     @classmethod
-    def get_length_seconds(cls, stream_handle: HANDLE, stream_bytes: int | None = None) -> float:
+    def get_length_seconds(cls, handle: HANDLE, stream_bytes: int | None = None) -> float:
         if stream_bytes is NULL:
-            stream_bytes = cls.get_length_bytes(stream_handle)
-        return BASS_ChannelBytes2Seconds(stream_handle, stream_bytes)
+            stream_bytes = cls.get_length_bytes(handle)
+        return BASS_ChannelBytes2Seconds(handle, stream_bytes)
 
     @classmethod
-    def get_length_str(cls, stream_handle: HANDLE) -> str:
-        value = cls.get_length_seconds(stream_handle)
+    def get_length_str(cls, handle: HANDLE) -> str:
+        value = cls.get_length_seconds(handle)
         seconds = int(value % 60)
         minutes = int(value / 60)
         return f'{minutes:02}:{seconds:02}'
 
     @classmethod
-    def get_position_str(cls, stream_handle: HANDLE) -> str:
-        value = cls.get_position_seconds(stream_handle)
+    def get_position_str(cls, handle: HANDLE) -> str:
+        value = cls.get_position_seconds(handle)
         seconds = int(value % 60)
         minutes = int(value / 60)
         return f"{minutes:02}:{seconds:02}"
 
     @classmethod
-    def get_length_bytes(cls, stream_handle: HANDLE) -> int:
-        return BASS_ChannelGetLength(stream_handle, Pos.BYTE.value)
-
-    @classmethod
-    def get_id3v1_tags(cls, stream_handle: HANDLE) -> P_TAG_ID3:
-        return BASS_ChannelGetTagsID3v1(stream_handle, Tag.ID3.value)
+    def get_length_bytes(cls, handle: HANDLE) -> int:
+        return BASS_ChannelGetLength(handle, Pos.BYTE.value)
 
     @classmethod
     def set_attribute(cls, handle: HANDLE, attrib: Attrib | int, value: float) -> bool:
@@ -160,6 +154,10 @@ class BassChannel:
     @classmethod
     def flags(cls, handle: HANDLE, flags: SampleFlags, mask: SampleFlags) -> int:
         return BASS_ChannelFlags(handle, flags.value, mask)
+
+    @classmethod
+    def get_tags(cls, handle: HANDLE, tags: Tag) -> bytes:
+        return BASS_ChannelGetTags(handle, tags.value)
 
 
 class BassError:
@@ -184,7 +182,7 @@ class BassException(Exception):
         if self.desc is not None:
             res += f': {self.desc}'
         if self.detail is not None:
-            res += f' - {self.detail=}'
+            res += f' - {self.detail}'
         return res
 
 
@@ -223,8 +221,11 @@ class BassMusic:
         return BassChannel.set_attribute(handle, MusicAttrib.VOL_INST.value + instrument_num, volume)
 
     @classmethod
-    def set_position(cls, handle: HANDLE, pattern_num: int, row: int = 0) -> bool:
-        return BASS_ChannelSetPosition(handle, MAKELONG(pattern_num, row), Pos.MUSIC_ORDER.value)
+    def set_position(cls, handle: HANDLE, pattern_num: int, row: int = 0, stop_notes: bool = True) -> bool:
+        mode = Pos.MUSIC_ORDER
+        if stop_notes:
+            mode |= Pos.MUSIC_RESET
+        return BassChannel.set_position(handle, MAKELONG(pattern_num, row), mode)
 
 
 class DeviceMissingError(Exception):
